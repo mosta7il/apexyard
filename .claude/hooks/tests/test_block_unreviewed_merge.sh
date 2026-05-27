@@ -77,6 +77,35 @@ write_rex_marker() {
   echo "$sha" > "$sb/.claude/session/reviews/${pr}-rex.approved"
 }
 
+write_qa_marker() {
+  local sb="$1" pr="$2" sha="${3:-$FIXED_SHA}"
+  cat > "$sb/.claude/session/reviews/${pr}-qa.approved" <<EOF
+sha=${sha}
+approved_by=qa-engineer
+approved_at=2026-05-03T20:00:00Z
+skill_version=1
+approval_summary="qa verified"
+EOF
+}
+
+write_qa_marker_wrong_approved_by() {
+  local sb="$1" pr="$2"
+  cat > "$sb/.claude/session/reviews/${pr}-qa.approved" <<EOF
+sha=${FIXED_SHA}
+approved_by=human
+skill_version=1
+EOF
+}
+
+write_qa_marker_bad_version() {
+  local sb="$1" pr="$2"
+  cat > "$sb/.claude/session/reviews/${pr}-qa.approved" <<EOF
+sha=${FIXED_SHA}
+approved_by=qa-engineer
+skill_version=0
+EOF
+}
+
 write_ceo_marker_structured() {
   # Valid v2 structured marker.
   local sb="$1" pr="$2" sha="${3:-$FIXED_SHA}"
@@ -151,49 +180,56 @@ run_case() {
 
 # --- Cases ------------------------------------------------------------
 
-# 1. Both markers present & valid → allows merge (exit 0)
+# 1. All three markers present & valid → allows merge (exit 0)
 sb=$(make_sandbox)
 write_rex_marker "$sb" 200
+write_qa_marker "$sb" 200
 write_ceo_marker_structured "$sb" 200
-run_case "valid rex + valid v2 ceo → allows" 0 "" "$sb" 200
+run_case "valid rex + qa + valid v2 ceo → allows" 0 "" "$sb" 200
 
 # 2. Missing Rex → blocks
 sb=$(make_sandbox)
 write_ceo_marker_structured "$sb" 201
 run_case "missing rex marker → blocks" 2 "no recorded code-reviewer" "$sb" 201
 
-# 3. Missing CEO → blocks
+# 3. Missing CEO → blocks (QA present so gate reaches CEO check)
 sb=$(make_sandbox)
 write_rex_marker "$sb" 202
+write_qa_marker "$sb" 202
 run_case "missing ceo marker → blocks" 2 "no CEO approval marker" "$sb" 202
 
 # 4. Bare-SHA legacy CEO marker → blocks "stale or unrecognised format"
 sb=$(make_sandbox)
 write_rex_marker "$sb" 203
+write_qa_marker "$sb" 203
 write_ceo_marker_legacy_bare "$sb" 203
 run_case "bare-SHA ceo marker → blocks (stale format)" 2 "stale or unrecognised format" "$sb" 203
 
 # 5. CEO marker missing approved_by → blocks
 sb=$(make_sandbox)
 write_rex_marker "$sb" 204
+write_qa_marker "$sb" 204
 write_ceo_marker_missing_field "$sb" 204
 run_case "ceo missing approved_by → blocks" 2 "approved_by=user" "$sb" 204
 
 # 6. CEO marker has approved_by=robot → blocks
 sb=$(make_sandbox)
 write_rex_marker "$sb" 205
+write_qa_marker "$sb" 205
 write_ceo_marker_wrong_approved_by "$sb" 205
 run_case "ceo approved_by=robot → blocks" 2 "approved_by=user" "$sb" 205
 
 # 7. CEO marker skill_version=1 → blocks
 sb=$(make_sandbox)
 write_rex_marker "$sb" 206
+write_qa_marker "$sb" 206
 write_ceo_marker_old_version "$sb" 206
 run_case "ceo skill_version=1 → blocks" 2 "skill_version=1" "$sb" 206
 
 # 8. CEO marker sha mismatch → blocks
 sb=$(make_sandbox)
 write_rex_marker "$sb" 207
+write_qa_marker "$sb" 207
 write_ceo_marker_structured "$sb" 207 "$WRONG_SHA"
 run_case "ceo sha mismatch → blocks" 2 "CEO approved commit" "$sb" 207
 
@@ -219,6 +255,7 @@ fi
 # 11. The gh-api merge shape is also gated (#47 — same coverage check).
 sb=$(make_sandbox)
 write_rex_marker "$sb" 210
+write_qa_marker "$sb" 210
 # No CEO marker — should still block.
 input=$(jq -nc --arg c "gh api repos/me2resh/apexyard/pulls/210/merge -X PUT" \
   '{tool_name:"Bash", tool_input:{command:$c}}')
@@ -235,6 +272,7 @@ fi
 # 12. Quoted approval_summary (with spaces) doesn't break the parser.
 sb=$(make_sandbox)
 write_rex_marker "$sb" 211
+write_qa_marker "$sb" 211
 cat > "$sb/.claude/session/reviews/211-ceo.approved" <<EOF
 sha=${FIXED_SHA}
 approved_by=user
@@ -260,6 +298,7 @@ mkdir -p "$sb/workspace/demo"
 ( cd "$sb/workspace/demo" && git init -q )
 # Markers exist at the OPS FORK's reviews dir (where the agent + skill write).
 write_rex_marker "$sb" 212
+write_qa_marker "$sb" 212
 write_ceo_marker_structured "$sb" 212
 # Run the hook from inside workspace/demo cwd (not the ops fork).
 input=$(jq -nc --arg c "gh pr merge 212 --repo me2resh/apexyard" '{tool_name:"Bash", tool_input:{command:$c}}')
@@ -272,6 +311,32 @@ else
   echo "FAIL [workspace-clone cwd → resolves markers from ops fork (#229+#230)]: rc=$got_rc stderr=${got_stderr:0:300}" >&2
   FAIL=$((FAIL+1)); FAILED_CASES="${FAILED_CASES}workspace-clone-resolves-up "
 fi
+
+# --- QA marker cases --------------------------------------------------
+
+# 14. Missing QA marker (Rex present, no QA, no CEO) → blocks with QA error
+sb=$(make_sandbox)
+write_rex_marker "$sb" 213
+run_case "missing qa marker → blocks" 2 "no QA approval marker" "$sb" 213
+
+# 15. QA approved_by wrong value → blocks
+sb=$(make_sandbox)
+write_rex_marker "$sb" 214
+write_qa_marker_wrong_approved_by "$sb" 214
+run_case "qa approved_by=human → blocks" 2 "approved_by=qa-engineer" "$sb" 214
+
+# 16. QA skill_version=0 → blocks
+sb=$(make_sandbox)
+write_rex_marker "$sb" 215
+write_qa_marker_bad_version "$sb" 215
+run_case "qa skill_version=0 → blocks" 2 "skill_version" "$sb" 215
+
+# 17. QA sha mismatch → blocks
+sb=$(make_sandbox)
+write_rex_marker "$sb" 216
+write_qa_marker "$sb" 216 "$WRONG_SHA"
+write_ceo_marker_structured "$sb" 216
+run_case "qa sha mismatch → blocks" 2 "QA approved commit" "$sb" 216
 
 # --- Summary ----------------------------------------------------------
 
