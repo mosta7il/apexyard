@@ -5,20 +5,25 @@
 # Both merge shapes are covered — see _lib-extract-pr.sh for the parser and
 # #47 for why the API-shape bypass was a gap worth closing.
 #
-# Enforces workflow-gates rule #5 ("2 reviews — agent + human, CI green,
-# commit SHA matches review") at the merge boundary, mechanically. Two
+# Enforces workflow-gates rule #5 ("3 reviews — agent + QA + human, CI green,
+# commit SHA matches review") at the merge boundary, mechanically. Three
 # markers are required:
 #
 #   .claude/session/reviews/<pr>-rex.approved
 #     Written by the code-reviewer agent (Rex) after a successful review.
 #     Contents: the commit SHA Rex reviewed.
 #
+#   .claude/session/reviews/<pr>-qa.approved
+#     Written ONLY by the /qa-approve <pr> skill after the QA engineer has
+#     verified all acceptance criteria on the PR branch. Structured key/value
+#     format with approved_by=qa-engineer, skill_version=1. See AgDR-0053.
+#
 #   .claude/session/reviews/<pr>-ceo.approved
 #     Written ONLY by the /approve-merge <pr> skill on explicit user
 #     invocation. Contents: the commit SHA the CEO approved.
 #
-# Both markers must exist, and both SHAs must match the live HEAD. Any
-# commits pushed after approval invalidate both — re-review and re-approve.
+# All three markers must exist, and all SHAs must match the live HEAD. Any
+# commits pushed after approval invalidate all — re-review and re-approve.
 #
 # The CEO marker is the mechanical enforcement of the "plan-level 'go' is
 # NOT merge approval" rule in .claude/rules/pr-workflow.md. An umbrella
@@ -90,8 +95,19 @@ if [ -f "$HOOK_DIR/_lib-ops-root.sh" ]; then
   OPS_ROOT=$(resolve_ops_root "$REPO_ROOT")
 fi
 MARKER_HOME="${OPS_ROOT:-${REPO_ROOT:-.}}"
+# In split-portfolio v2 mode, review markers live in the private portfolio
+# repo. portfolio_session_home() returns the configured override if set.
+if [ -n "$OPS_ROOT" ] && [ -f "$HOOK_DIR/_lib-read-config.sh" ] && [ -f "$HOOK_DIR/_lib-portfolio-paths.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$HOOK_DIR/_lib-read-config.sh"
+  # shellcheck source=/dev/null
+  . "$HOOK_DIR/_lib-portfolio-paths.sh"
+  _sh=$(portfolio_session_home 2>/dev/null)
+  [ -n "$_sh" ] && MARKER_HOME="$_sh"
+fi
 REVIEWS_DIR="${MARKER_HOME}/.claude/session/reviews"
 REX_APPROVAL="${REVIEWS_DIR}/${PR_NUMBER}-rex.approved"
+QA_APPROVAL="${REVIEWS_DIR}/${PR_NUMBER}-qa.approved"
 CEO_APPROVAL="${REVIEWS_DIR}/${PR_NUMBER}-ceo.approved"
 
 # Resolve the PR's real HEAD via GitHub, not local git (see #55). The local
@@ -137,6 +153,79 @@ BLOCKED: Code-reviewer approved commit ${REX_SHA:0:7} but HEAD is now ${CURRENT_
 
 New commits were pushed after the Rex review. Re-invoke Rex on the latest
 HEAD before merging.
+MSG
+  exit 2
+fi
+
+# --- QA marker check (AgDR-0053) ---
+if [ ! -f "$QA_APPROVAL" ]; then
+  cat >&2 <<MSG
+BLOCKED: PR #${PR_NUMBER} has no QA approval marker.
+
+ApexYard requires three approvals before merge (workflow-gates rule #5):
+  1. Code Reviewer agent (Rex) — automated code review
+  2. QA Engineer — verifies all acceptance criteria on the PR branch
+  3. Human approver (CEO) — recorded by the /approve-merge skill
+
+Missing file:
+  ${QA_APPROVAL}
+
+To unblock:
+  1. Deploy the PR branch to staging (or run locally)
+  2. Verify every acceptance criterion passes
+  3. Invoke the QA approval skill:
+       /qa-approve ${PR_NUMBER}
+  4. Then get CEO approval via /approve-merge ${PR_NUMBER}
+  5. Retry the merge
+MSG
+  exit 2
+fi
+
+qa_field() {
+  grep -E "^${1}=" "$QA_APPROVAL" 2>/dev/null \
+    | head -1 \
+    | sed -E "s/^${1}=//" \
+    | sed -E 's/^"(.*)"$/\1/'
+}
+
+QA_SHA=$(qa_field sha)
+QA_APPROVED_BY=$(qa_field approved_by)
+QA_SKILL_VERSION=$(qa_field skill_version)
+
+if [ -z "$QA_SHA" ]; then
+  cat >&2 <<MSG
+BLOCKED: PR #${PR_NUMBER} QA marker is malformed (missing sha= field).
+
+Re-run /qa-approve ${PR_NUMBER} to write a valid marker.
+MSG
+  exit 2
+fi
+
+if [ "$QA_APPROVED_BY" != "qa-engineer" ]; then
+  cat >&2 <<MSG
+BLOCKED: PR #${PR_NUMBER} QA marker has approved_by=${QA_APPROVED_BY:-<empty>}.
+
+The merge gate requires exactly \`approved_by=qa-engineer\`. Use /qa-approve — never
+edit the marker by hand.
+MSG
+  exit 2
+fi
+
+if [ -z "$QA_SKILL_VERSION" ] || ! [ "$QA_SKILL_VERSION" -ge 1 ] 2>/dev/null; then
+  cat >&2 <<MSG
+BLOCKED: PR #${PR_NUMBER} QA marker has skill_version=${QA_SKILL_VERSION:-<missing>}.
+
+Requires skill_version >= 1. Re-run /qa-approve ${PR_NUMBER}.
+MSG
+  exit 2
+fi
+
+if [ -n "$QA_SHA" ] && [ -n "$CURRENT_SHA" ] && [ "$QA_SHA" != "$CURRENT_SHA" ]; then
+  cat >&2 <<MSG
+BLOCKED: QA approved commit ${QA_SHA:0:7} but HEAD is now ${CURRENT_SHA:0:7}.
+
+New commits were pushed after QA sign-off. Re-invoke /qa-approve ${PR_NUMBER} on the
+new HEAD before merging.
 MSG
   exit 2
 fi

@@ -254,26 +254,27 @@ See `.claude/rules/workflow-gates.md` § "Migration Gate (3a)" for the mechanica
 
 ---
 
-## Phase 5: QA Verification (MANDATORY)
+## Phase 5: QA Verification (MANDATORY — pre-merge)
 
-> **Primary role**: [QA Engineer](../roles/engineering/qa-engineer.md) · **Trigger**: merged PR → ticket moves to `qa` label (NOT auto-closed) · **Handoff from**: [Backend](../roles/engineering/backend-engineer.md) / [Frontend Engineer](../roles/engineering/frontend-engineer.md) (testable build on staging) · **Handoff to**: [Product Manager](../roles/product/product-manager.md) (AC sign-off) → Done
+> **Primary role**: [QA Engineer](../roles/engineering/qa-engineer.md) · **Trigger**: PR passes Rex code review → QA deploys PR branch and verifies ACs **before merge** · **Handoff from**: [Backend](../roles/engineering/backend-engineer.md) / [Frontend Engineer](../roles/engineering/frontend-engineer.md) (testable build on PR branch / staging) · **Handoff to**: CEO (`/approve-merge`) → merge → Done
 >
-> This is the **mandatory gate** — merged code is never Done until the QA Engineer has verified every acceptance criterion. Auto-closing via `Closes #XX` is intentionally overridden with `Refs #XX` + the `qa` label when QA verification is required.
+> This is the **mandatory pre-merge gate** — `gh pr merge` is mechanically blocked until the QA Engineer invokes `/qa-approve <pr>`. QA verifies the PR branch (not yet merged to main) so defects never reach main. After QA approves, the CEO runs `/approve-merge` to merge.
 
 ### Entry Criteria
 
-- PR approved and merged
-- Feature deployed to staging (or runnable locally)
+- PR has Rex approval
+- PR branch deployed to staging (or runnable locally)
 
 ### QA Gate
 
-Tickets CANNOT move to Done without QA verification.
+PRs CANNOT merge without QA verification. `block-unreviewed-merge.sh` enforces this mechanically.
 
 ```
-In Progress --> In Review --> QA --> Done
+In Progress --> In Review --> QA --> Merge --> Done
                                ^
                          MANDATORY STOP
-                         QA must verify
+                         /qa-approve <pr> required
+                         before gh pr merge is allowed
 ```
 
 ### Activities
@@ -285,13 +286,23 @@ In Progress --> In Review --> QA --> Done
 | Regression check | QA Engineer | No regressions |
 | Sign-off | QA Engineer | Approval to close |
 
+### How QA Records Sign-off
+
+After all ACs pass on the PR branch:
+
+```bash
+/qa-approve <pr>   # writes .claude/session/reviews/<pr>-qa.approved
+```
+
+The merge gate then allows the CEO to run `/approve-merge <pr>`.
+
 ### If QA Finds Issues
 
 1. QA creates bug ticket linked to original
 2. Original ticket stays in QA state
-3. Engineer fixes bug in new PR
-4. Re-run QA verification
-5. Only move to Done when QA passes
+3. Engineer fixes bug (new commits on the same PR branch or a new PR)
+4. Re-run QA verification, re-invoke `/qa-approve <pr>`
+5. Only allow merge when QA passes
 
 ---
 

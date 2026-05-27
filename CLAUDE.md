@@ -79,8 +79,9 @@ Planning --> Design --> Build --> Review --> QA --> Deploy --> Monitor
 |------|--------|--------|
 | 1 | Design --> Build | PRD approved, tickets exist |
 | 2 | Build --> Review | Tests pass, checks pass, >80% coverage |
-| 3 | Review --> Merge | Code review approved, CI green |
-| 4 | Merge --> Done | QA verified all acceptance criteria |
+| 3 | Review --> QA | Code review approved (Rex), CI green |
+| 4 | QA --> Merge | QA verified all ACs on PR branch (`/qa-approve`) |
+| 5 | Merge --> Done | CEO approved (`/approve-merge`), CI green |
 
 **If a gate fails, STOP. Complete the missing step first.**
 
@@ -191,7 +192,7 @@ ApexYard ships with a `.claude/` directory containing the Claude Code primitives
 | Skills | `.claude/skills/` | 54 slash commands — see the full list below |
 | Settings | `.claude/settings.json` | Wires hooks to `PreToolUse`, `PostToolUse`, and `SessionStart` events |
 
-### Available skills (54)
+### Available skills (55)
 
 One-line summary per skill; canonical details live in each `.claude/skills/<name>/SKILL.md`.
 
@@ -211,6 +212,7 @@ One-line summary per skill; canonical details live in each `.claude/skills/<name
 | `/mutation-test` | Mutation-testing sensor — Stryker/MutPy/go-mutesting/mutant; milestone cadence, exit-3 graceful-degrade |
 | `/start-ticket` | Declare an active ticket for this session (required before code edits) |
 | `/approve-merge` | Record per-PR CEO approval and merge (required by merge gate) |
+| `/qa-approve` | Record QA engineer sign-off on a PR after verifying all ACs (required by merge gate) |
 | `/approve-design` | Record per-PR design-review approval for UI PRs (required by design gate) |
 | `/decide` | Make a technical decision and create an Agent Decision Record (AgDR) |
 | `/agdr` | Browse / search / show / stats across the portfolio's AgDR library |

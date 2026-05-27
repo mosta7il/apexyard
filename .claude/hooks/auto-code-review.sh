@@ -57,8 +57,14 @@ and .claude/rules/pr-workflow.md. Invoke Rex NOW using the Agent tool:
   prompt: "Review ${PR_REF} at ${PR_URL}. Check the diff, tests, coverage,
            AgDR linkage, glossary, and commit SHA consistency. Report verdict."
 
-The merge-gate hook will block \`gh pr merge\` for this PR until a Rex approval
-file exists at .claude/session/reviews/${PR_NUMBER:-<pr>}-rex.approved.
+The merge-gate hook will block \`gh pr merge\` for this PR until all three
+approval markers exist at .claude/session/reviews/:
+  ${PR_NUMBER:-<pr>}-rex.approved   ← Rex (automated, written by code-reviewer agent)
+  ${PR_NUMBER:-<pr>}-qa.approved    ← QA  (written by /qa-approve after verifying ACs)
+  ${PR_NUMBER:-<pr>}-ceo.approved   ← CEO (written by /approve-merge on explicit approval)
+
+After Rex approves, verify acceptance criteria on the PR branch, then run:
+  /qa-approve ${PR_NUMBER:-<pr>}
 
 This message is a reminder from the PostToolUse hook, not a tool error. The PR
 was created successfully.

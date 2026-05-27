@@ -55,6 +55,7 @@ Also check before pushing:
 
 ```
 [ ] Code Reviewer approved for THIS commit SHA?     NO → WAIT
+[ ] QA approved for THIS commit SHA?                NO → WAIT (/qa-approve <pr>)
 [ ] Human approver approved THIS specific PR?       NO → WAIT, ASK EXPLICITLY
 ```
 
