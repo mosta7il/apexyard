@@ -1,5 +1,20 @@
 {
+  "ticket": {
+    "prefix_whitelist": [
+      "Feature",
+      "Bug",
+      "Chore",
+      "Refactor",
+      "Testing",
+      "CI",
+      "Docs",
+      "Spike",
+      "Investigation",
+      "Migration"
+    ]
+  },
   "portfolio": {
+    "session_home": "../apexyard-portfolio",
     "registry": "../apexyard-portfolio/apexyard.projects.yaml",
     "projects_dir": "../apexyard-portfolio/projects",
     "ideas_backlog": "../apexyard-portfolio/projects/ideas-backlog.md",
