@@ -14,6 +14,21 @@ or `/approve-merge` — those run after this skill completes.
 
 ---
 
+## Fail-fast contract
+
+**Every step below is a hard gate.** If a step fails or produces an ambiguous result, STOP
+immediately — do not proceed to the next step. Print a clear STOPPED message that names:
+
+1. Which step failed
+2. What the exact error or blocker is
+3. What the user must do to unblock it
+
+Never silently skip a failing step. Never paper over a failure by guessing or continuing anyway.
+The skill is designed to be re-run after the user fixes the blocker — each step is idempotent
+enough that re-running from the beginning is safe.
+
+---
+
 ## Step 1 — Load the active ticket
 
 Resolve the ops root (walk up from CWD looking for `onboarding.yaml` + `apexyard.projects.yaml`).
@@ -24,30 +39,48 @@ source "$OPS_ROOT/.claude/hooks/_lib-read-config.sh"
 source "$OPS_ROOT/.claude/hooks/_lib-portfolio-paths.sh"
 session_home=$(portfolio_session_home)
 
-# Per-project marker takes precedence over the ops fallback.
-# Determine the project name from the registry by matching the ticket's repo.
-# Per-project marker path: $session_home/.claude/session/tickets/<project>
-# Ops fallback: $session_home/.claude/session/current-ticket
+# Per-project marker: $session_home/.claude/session/tickets/<project>
+# Ops fallback:       $session_home/.claude/session/current-ticket
 ```
 
 Parse fields: `repo`, `number`, `title`, `url`, `suggested_branch`.
 
-**If no marker exists → STOP.** Print:
-```
-No active ticket. Run /start-ticket <N> first.
-```
+**STOP if:**
+- No marker file exists at either path:
+  ```
+  STOPPED (Step 1): No active ticket.
+  Fix: run /start-ticket <N> to declare a ticket before implementing.
+  ```
+- Any required field (`repo`, `number`, `title`, `suggested_branch`) is missing from the marker:
+  ```
+  STOPPED (Step 1): Marker at <path> is missing required field: <field>.
+  Fix: re-run /start-ticket <N> to rewrite a valid marker.
+  ```
 
 ---
 
 ## Step 2 — Read the issue
 
-Fetch the full issue body to understand requirements and acceptance criteria:
+Fetch the full issue body:
 
 ```bash
-gh issue view <number> --repo <owner/repo> --json title,body,labels
+gh issue view <number> --repo <owner/repo> --json title,body,labels,state
 ```
 
-Read the ACs carefully — they define what "done" means for this ticket and what tests must cover.
+**STOP if:**
+- `gh` exits non-zero (network error, auth failure, issue not found):
+  ```
+  STOPPED (Step 2): Could not fetch issue <owner/repo>#<number>.
+  Error: <exact gh error output>
+  Fix: check network/auth, verify the issue exists, then re-run /implement.
+  ```
+- Issue `state` is `CLOSED`:
+  ```
+  STOPPED (Step 2): Issue #<number> is already closed.
+  Fix: confirm you have the right ticket, reopen it if needed, then re-run /implement.
+  ```
+
+Read the ACs carefully — they define what "done" means and what tests must cover.
 
 ---
 
@@ -65,20 +98,49 @@ Before writing any code, assess whether 2+ meaningfully different implementation
 - The change is a single clearly-scoped addition with one obvious path
 - A prior AgDR already covers this decision
 
-If `/decide` is needed: run it now (inline — same session), produce the AgDR, then continue.
-If skipped: note in one sentence why the approach is unambiguous before proceeding.
+If `/decide` is needed: run it inline (same session), produce the AgDR, then continue.
+If skipped: state in one sentence why the approach is unambiguous before proceeding.
+
+**STOP if:**
+- `/decide` is needed but cannot produce a clear recommendation (conflicting constraints,
+  missing information, external dependencies not yet resolved):
+  ```
+  STOPPED (Step 3): Cannot proceed without a decision on <topic>.
+  The decide flow surfaced conflicting options with no clear winner.
+  Fix: resolve the open question (linked in the AgDR draft), then re-run /implement.
+  ```
 
 ---
 
 ## Step 4 — Create the branch
 
-Use the `suggested_branch` from the marker. If the current branch already matches, skip.
+Use the `suggested_branch` from the marker. If already on that branch, skip checkout.
 
 ```bash
 git checkout -b <suggested_branch>
 ```
 
 Branch format: `{type}/GH-{N}-{slug}` per `.claude/rules/git-conventions.md`.
+
+**STOP if:**
+- The branch already exists **locally** and is not the current branch:
+  ```
+  STOPPED (Step 4): Branch <suggested_branch> already exists locally.
+  Fix: run `git checkout <suggested_branch>` manually if you want to resume,
+       or delete it with `git branch -d <suggested_branch>` to start fresh.
+  ```
+- The branch already exists **on the remote**:
+  ```
+  STOPPED (Step 4): Branch <suggested_branch> already exists on origin.
+  Fix: decide whether to resume that branch or start fresh. Do NOT force-push.
+       Check `gh pr list` to see if a PR is already open for this branch.
+  ```
+- `git checkout -b` fails for any other reason (dirty tree, detached HEAD, etc.):
+  ```
+  STOPPED (Step 4): Could not create branch <suggested_branch>.
+  Error: <exact git error>
+  Fix: resolve the git state issue, then re-run /implement.
+  ```
 
 ---
 
@@ -91,7 +153,22 @@ Read the relevant source files before editing. Follow the project's existing pat
 - No comments unless the WHY is genuinely non-obvious
 - No features beyond what the ticket requires
 
-**Test first for the failing case** (if applicable): write the test that captures the AC, confirm it fails, then implement until it passes. This is optional for chores/refactors but mandatory for bug fixes and features.
+**Test-first for the failing case** (mandatory for bug fixes and features, optional for chores):
+write the test that captures the AC, confirm it fails, then implement until it passes.
+
+**STOP if:**
+- A required source file cannot be found and its location is genuinely unclear:
+  ```
+  STOPPED (Step 5): Cannot locate <file> needed for this change.
+  Fix: identify the correct file path, then re-run /implement.
+  ```
+- The implementation reveals the ticket's scope is larger than the ACs describe
+  (e.g. a dependency needs changing that touches unrelated code):
+  ```
+  STOPPED (Step 5): Scope creep detected — <description of the unexpected dependency>.
+  Fix: clarify the ticket scope with the user before continuing. Do not implement
+       beyond what the ACs require.
+  ```
 
 ---
 
@@ -99,10 +176,10 @@ Read the relevant source files before editing. Follow the project's existing pat
 
 Run all checks locally before pushing. **All must pass — no exceptions.**
 
-Detect the project's package manager and run its standard gate. Common patterns:
+Detect the project's package manager and run its standard gate:
 
 ```bash
-# pnpm (Next.js / Node projects)
+# pnpm (Next.js / Node)
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 # npm
@@ -115,7 +192,17 @@ ruff check . && mypy . && pytest
 go vet ./... && go test ./...
 ```
 
-If any check fails → fix it before proceeding. Do not push red.
+**STOP if any check fails:**
+```
+STOPPED (Step 6): Pre-push gate failed at <lint|typecheck|test|build>.
+Error output:
+  <exact failure output>
+Fix: resolve the failure above, then re-run /implement.
+     Do NOT push. Do NOT create the PR.
+```
+
+Do not attempt to suppress or work around the failure (e.g. `--no-verify`, `// eslint-disable`).
+Fix the root cause.
 
 ---
 
@@ -127,7 +214,7 @@ Stage **specific files only** (never `git add -A` or `git add .`):
 git add <file1> <file2> ...
 ```
 
-Commit message format (`.claude/rules/git-conventions.md`):
+Commit message format:
 
 ```
 type(#N): subject line
@@ -142,6 +229,20 @@ Co-Authored-By: Claude Sonnet 4.6 (1M context) <noreply@anthropic.com>
 
 `type` must match the branch type: `feat`, `fix`, `chore`, `test`, `docs`, `refactor`, `perf`.
 
+**STOP if:**
+- Nothing was staged (working tree clean — implementation produced no changes):
+  ```
+  STOPPED (Step 7): Nothing to commit — no files were changed.
+  Fix: verify the implementation in Step 5 actually modified files, then re-run /implement.
+  ```
+- A pre-commit hook rejects the commit:
+  ```
+  STOPPED (Step 7): Pre-commit hook blocked the commit.
+  Hook output:
+    <exact hook output>
+  Fix: resolve the hook failure (do NOT use --no-verify), then re-run /implement.
+  ```
+
 ---
 
 ## Step 8 — Push
@@ -149,6 +250,14 @@ Co-Authored-By: Claude Sonnet 4.6 (1M context) <noreply@anthropic.com>
 ```bash
 git push -u origin <branch>
 ```
+
+**STOP if:**
+- Push is rejected for any reason (remote ahead, auth failure, protected branch):
+  ```
+  STOPPED (Step 8): Push failed.
+  Error: <exact git push output>
+  Fix: resolve the push error. Do NOT force-push without explicit user instruction.
+  ```
 
 ---
 
@@ -181,20 +290,32 @@ Closes #N
 | <term> | <definition relevant to this PR> |
 ```
 
-**Rules for Summary bullets:**
-- Every bullet must answer *what changed* AND *why it matters*
-- No label-only bullets ("State fix", "Add tests") — those force reviewers into diff archaeology
-- Minimum 1 bullet, maximum 6
+**Summary bullets:** every bullet must answer *what changed* AND *why it matters*.
+No label-only bullets ("State fix", "Add tests") — those force reviewers into diff archaeology.
 
-**Glossary is mandatory.** If the PR introduces no new terms, add at least one definition for the
-most domain-specific term already in the diff. Reviewers should never have to ask "what is X?"
+**Glossary is mandatory.** At minimum define the most domain-specific term in the diff.
+
+**STOP if:**
+- `gh pr create` exits non-zero:
+  ```
+  STOPPED (Step 9): PR creation failed.
+  Error: <exact gh error output>
+  Fix: resolve the error (auth, duplicate PR, branch not pushed, etc.), then re-run /implement.
+  ```
+- A pre-PR hook (e.g. `validate-pr-create.sh`) rejects the title or body:
+  ```
+  STOPPED (Step 9): PR validation hook blocked creation.
+  Hook output:
+    <exact hook output>
+  Fix: correct the PR title/body format, then re-run /implement.
+  ```
 
 ---
 
 ## Step 10 — Hand off to code review
 
-After `gh pr create` succeeds, the `auto-code-review.sh` PostToolUse hook fires and reminds you
-to invoke Rex. Do it immediately:
+After `gh pr create` succeeds, the `auto-code-review.sh` PostToolUse hook fires automatically.
+Invoke Rex immediately:
 
 ```
 /code-review <pr-number>
@@ -212,17 +333,6 @@ Rex must approve before the merge gate allows `/approve-merge`.
 | Code review | `/code-review` (Rex) |
 | QA verification | `/qa-approve` |
 | Merge | `/approve-merge` |
-
----
-
-## Error conditions
-
-| Condition | Action |
-|-----------|--------|
-| No active ticket marker | STOP — print `No active ticket. Run /start-ticket <N> first.` |
-| Pre-push gate fails | Fix the failure. Do not push. Do not create the PR. |
-| Branch already exists remotely | Stop and ask the user — don't force-push |
-| Ticket is already closed | Warn and ask for confirmation before proceeding |
 
 ---
 
