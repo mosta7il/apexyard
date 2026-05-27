@@ -14,6 +14,13 @@
 workspace/*/
 !workspace/README.md
 
+# Split-portfolio v2 — these live in the private sibling repo (apexyard-portfolio).
+# Ignored here so a stray `git add -A` never accidentally stages them in the
+# public fork.
+/apexyard.projects.yaml
+/projects
+/onboarding.yaml
+
 # Adopter-specific agent routing (single-fork mode; split-portfolio mode
 # keeps this in the private repo). See docs/multi-project.md § "Centralised
 # agent routing" and docs/agdr/AgDR-0050-agent-runtime-overhaul.md.
