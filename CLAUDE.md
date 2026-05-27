@@ -189,10 +189,10 @@ ApexYard ships with a `.claude/` directory containing the Claude Code primitives
 | Rules | `.claude/rules/` | 11 modular rule files (AgDR triggers, code standards, git conventions, leak protection, parallel work, plan mode, PR quality, PR workflow, role triggers, ticket vocabulary, workflow gates) |
 | Handbooks | `handbooks/` | Adopter-authored coding standards consumed by Rex during code review. Discovery by path-convention (`architecture/` + `general/` always-load; `language/<lang>/` loads on diff-match). Advisory by default; opt in to blocking via `ENFORCEMENT: blocking` marker. See [`handbooks/README.md`](handbooks/README.md). |
 | Agents | `.claude/agents/` | 23 sub-agents (5 utility incl. Hakim post-consolidation + 7 engineering + 6 product-design + 5 security-data). Per AgDR-0050 + the #347 PR 3 Hatim→Hakim consolidation decision. |
-| Skills | `.claude/skills/` | 54 slash commands — see the full list below |
+| Skills | `.claude/skills/` | 56 slash commands — see the full list below |
 | Settings | `.claude/settings.json` | Wires hooks to `PreToolUse`, `PostToolUse`, and `SessionStart` events |
 
-### Available skills (55)
+### Available skills (56)
 
 One-line summary per skill; canonical details live in each `.claude/skills/<name>/SKILL.md`.
 
@@ -211,6 +211,7 @@ One-line summary per skill; canonical details live in each `.claude/skills/<name
 | `/docs-audit` | Diataxis docs audit — tutorials, how-to, reference, explanation |
 | `/mutation-test` | Mutation-testing sensor — Stryker/MutPy/go-mutesting/mutant; milestone cadence, exit-3 graceful-degrade |
 | `/start-ticket` | Declare an active ticket for this session (required before code edits) |
+| `/implement` | Full Build + PR flow for the active ticket — decide gate, branch, implement, pre-push checks, commit, push, PR |
 | `/approve-merge` | Record per-PR CEO approval and merge (required by merge gate) |
 | `/qa-approve` | Record QA engineer sign-off on a PR after verifying all ACs (required by merge gate) |
 | `/approve-design` | Record per-PR design-review approval for UI PRs (required by design gate) |
