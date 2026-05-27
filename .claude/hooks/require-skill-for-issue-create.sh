@@ -54,6 +54,14 @@ else
   done
 fi
 MARKER_HOME="${OPS_ROOT:-${REPO_ROOT:-.}}"
+if [ -n "$OPS_ROOT" ] && [ -f "$HOOK_DIR/_lib-read-config.sh" ] && [ -f "$HOOK_DIR/_lib-portfolio-paths.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$HOOK_DIR/_lib-read-config.sh"
+  # shellcheck source=/dev/null
+  . "$HOOK_DIR/_lib-portfolio-paths.sh"
+  _sh=$(portfolio_session_home 2>/dev/null)
+  [ -n "$_sh" ] && MARKER_HOME="$_sh"
+fi
 
 # Read the configured matcher list. Patterns are substrings; if no patterns
 # are configured (no defaults file, jq missing), the hook is a no-op.

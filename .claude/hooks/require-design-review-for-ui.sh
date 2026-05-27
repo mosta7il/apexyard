@@ -83,6 +83,14 @@ if [ -f "$HOOK_DIR/_lib-ops-root.sh" ]; then
   OPS_ROOT=$(resolve_ops_root "$REPO_ROOT")
 fi
 MARKER_HOME="${OPS_ROOT:-${REPO_ROOT:-.}}"
+if [ -n "$OPS_ROOT" ] && [ -f "$HOOK_DIR/_lib-read-config.sh" ] && [ -f "$HOOK_DIR/_lib-portfolio-paths.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$HOOK_DIR/_lib-read-config.sh"
+  # shellcheck source=/dev/null
+  . "$HOOK_DIR/_lib-portfolio-paths.sh"
+  _sh=$(portfolio_session_home 2>/dev/null)
+  [ -n "$_sh" ] && MARKER_HOME="$_sh"
+fi
 
 # Default UI path patterns (regex). Note: .tsx$ / .jsx$ are EXACT — they must
 # not match plain .ts / .js, which are often backend/server files. The

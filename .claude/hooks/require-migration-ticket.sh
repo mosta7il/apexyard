@@ -117,6 +117,10 @@ if [ -n "$OPS_ROOT" ] && [ -f "$HOOK_DIR/_lib-portfolio-paths.sh" ] && [ -f "$HO
   if [ -n "$resolved_ws" ]; then
     WORKSPACE_DIR="$resolved_ws"
   fi
+  resolved_session_home=$(portfolio_session_home 2>/dev/null)
+  if [ -n "$resolved_session_home" ]; then
+    MARKER_HOME="$resolved_session_home"
+  fi
 fi
 
 # --------- Load project-config overrides ---------

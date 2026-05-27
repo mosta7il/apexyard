@@ -154,6 +154,13 @@ if [ -n "$OPS_ROOT" ] && [ -f "$HOOK_DIR/_lib-portfolio-paths.sh" ] && [ -f "$HO
   if [ -n "$resolved_ws" ]; then
     WORKSPACE_DIR="$resolved_ws"
   fi
+  # In split-portfolio v2 mode, session state (markers) live in the private
+  # portfolio repo rather than the public ops fork. portfolio_session_home()
+  # returns the configured override, or the ops-fork root if not set.
+  resolved_session_home=$(portfolio_session_home 2>/dev/null)
+  if [ -n "$resolved_session_home" ]; then
+    MARKER_HOME="$resolved_session_home"
+  fi
 fi
 
 # Bootstrap-skill exemption (apexyard#150): skills like /setup,

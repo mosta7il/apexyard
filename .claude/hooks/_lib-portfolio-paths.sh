@@ -97,11 +97,21 @@ _portfolio_resolve() {
   case "$p" in
     /*) echo "$p" ;;
     *)
-      local root
+      local root combined
       root=$(_portfolio_root)
       if [ -n "$root" ]; then
         # Strip leading ./ for tidier output.
-        echo "$root/${p#./}"
+        combined="$root/${p#./}"
+        # Normalize away any `..` segments so split-portfolio paths like
+        # `../apexyard-portfolio/workspace` resolve to a canonical absolute
+        # path that string-compares correctly in hooks. Use realpath when
+        # available; fall back to the un-normalized form (no regression on
+        # systems that don't have realpath).
+        if command -v realpath >/dev/null 2>&1; then
+          realpath -m "$combined" 2>/dev/null || echo "$combined"
+        else
+          echo "$combined"
+        fi
       else
         # No root — return the literal so caller can detect.
         echo "$p"
@@ -192,6 +202,36 @@ portfolio_onboarding_path() {
   raw=$(_portfolio_get '.portfolio.onboarding' './onboarding.yaml')
   _PORTFOLIO_ONBOARDING_CACHE=$(_portfolio_resolve "$raw")
   echo "$_PORTFOLIO_ONBOARDING_CACHE"
+}
+
+# ------------------------------------------------------------------------------
+# Public: portfolio_session_home
+#   Resolves the root directory whose .claude/session/ subtree holds session
+#   markers (active-ticket, review approvals, bootstrap flags, etc.).
+#
+#   In single-fork mode this is the ops-fork root itself (default).
+#   In split-portfolio v2 mode session state belongs in the private sibling
+#   repo so that markers are never committed to the public framework fork.
+#   Set portfolio.session_home in project-config.json to override, e.g.:
+#     "session_home": "../apexyard-portfolio"
+#
+#   Default: ops-fork root (same as OPS_ROOT)
+# ------------------------------------------------------------------------------
+_PORTFOLIO_SESSION_HOME_CACHE=""
+portfolio_session_home() {
+  if [ -n "$_PORTFOLIO_SESSION_HOME_CACHE" ]; then
+    echo "$_PORTFOLIO_SESSION_HOME_CACHE"
+    return 0
+  fi
+  local raw
+  raw=$(_portfolio_get '.portfolio.session_home' '')
+  if [ -z "$raw" ]; then
+    # Not configured — default to the ops-fork root itself.
+    _PORTFOLIO_SESSION_HOME_CACHE=$(_portfolio_root)
+  else
+    _PORTFOLIO_SESSION_HOME_CACHE=$(_portfolio_resolve "$raw")
+  fi
+  echo "$_PORTFOLIO_SESSION_HOME_CACHE"
 }
 
 # ------------------------------------------------------------------------------
